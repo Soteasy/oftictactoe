@@ -50,7 +50,7 @@ app.get('/check_game', async (req, res) => {
                     gameDocument.winner = gameDocument.currentPlayer === gameDocument.player1 ? gameDocument.player2 : gameDocument.player1;
                     await collection.updateOne({ _id: gameDocument._id }, { $set: { status: gameDocument.status, winner: gameDocument.winner } });
                     }
-        res.status(200).send({ gameId: gameDocument._id.toString(), winner:gameDocument.winner,  winningCoordinates: gameDocument.winningCoordinates, status: gameDocument.status, board: gameDocument.board, player1Number: gameDocument.player1Number, player2Number: gameDocument.player2Number, player1: gameDocument.player1, player2: gameDocument.player2, currentPlayer: gameDocument.currentPlayer, lastMoveTime: gameDocument.lastMoveTime});
+        res.status(200).send({ gameId: gameDocument._id.toString(), winner:gameDocument.winner, filledCells: gameDocument.filledCells, winningCoordinates: gameDocument.winningCoordinates, lastMoveCoordinates: gameDocument.lastMoveCoordinates, status: gameDocument.status, board: gameDocument.board, player1Number: gameDocument.player1Number, player2Number: gameDocument.player2Number, player1: gameDocument.player1, player2: gameDocument.player2, currentPlayer: gameDocument.currentPlayer, lastMoveTime: gameDocument.lastMoveTime});
         return;
     } else {
         res.status(404).send('Game not found!');
@@ -89,10 +89,20 @@ app.post('/find_game', async (req, res) => {
         } while (player1Number === player2Number);
         const lastMoveTime = Date.now();
         await collection.updateOne({ _id: gameDocument._id }, { $set: { player2: userTag, status: 'running', player1Number: player1Number, player2Number: player2Number, currentPlayer: currentPlayer, lastMoveTime: lastMoveTime } });
-        res.status(200).send({ gameId: gameDocument._id.toString(), status: 'running', board: gameDocument.board, player1Number: player1Number, player2Number: player2Number, player1: gameDocument.player1, player2: userTag, currentPlayer: currentPlayer, lastMoveTime: lastMoveTime });
+        res.status(200).send({ gameId: gameDocument._id.toString(), status: 'running', board: gameDocument.board, filledCells: gameDocument.filledCells, player1Number: player1Number, player2Number: player2Number, player1: gameDocument.player1, player2: userTag, currentPlayer: currentPlayer, lastMoveTime: lastMoveTime });
         return;
     } else {
-        const result = await collection.insertOne({ player1: userTag, winner: "", status: 'waiting', board: Array(30).fill(Array(30).fill(' ')) });
+        let board = Array(30).fill(Array(30).fill(' '));
+        let filledCells = [];
+        while (filledCells.length < 50) {
+            let x = Math.floor(Math.random() * 30);
+            let y = Math.floor(Math.random() * 30);
+            let cell = [x, y];
+            if (!filledCells.some(item => item[0] === x && item[1] === y)) {
+                filledCells.push(cell);
+            }
+        }
+        const result = await collection.insertOne({ player1: userTag, winner: "", status: 'waiting', board: board, filledCells: filledCells });
         res.status(200).send({ gameId: result.insertedId.toString(), status: 'waiting', player1: userTag });
         return;
     }
@@ -105,7 +115,7 @@ app.post('/reconnect', async (req, res) => {
     const collection = client.db("tictactoe").collection("games");
     const gameDocument = await collection.findOne({ _id: gameId, $or: [{ player1: userTag }, { player2: userTag }], status: 'running' });
     if (gameDocument) {
-        res.status(200).send({board: gameDocument.board});
+        res.status(200).send({board: gameDocument.board, filledCells: gameDocument.filledCells});
         return;
     } else {
         res.status(404).send('Game not found!');
@@ -160,6 +170,7 @@ app.post('/make_move', async (req, res) => {
         // Обновляем доску
         gameDocument.board[x][y] = symbol // Обновляем время последнего хода
         gameDocument.lastMoveTime = Date.now(); 
+        gameDocument.lastMoveCoordinates = { x, y };
         let winningCoordinates = checkWin(gameDocument.board, symbol);
         if (winningCoordinates) {
             gameDocument.status = 'won';
@@ -170,14 +181,12 @@ app.post('/make_move', async (req, res) => {
             gameDocument.currentPlayer = gameDocument.currentPlayer === gameDocument.player1 ? gameDocument.player2 : gameDocument.player1;
         }
     
-        await collection.updateOne({ _id: gameDocument._id }, { $set: { status: gameDocument.status, winner: gameDocument.winner, currentPlayer: gameDocument.currentPlayer, board: gameDocument.board, winningCoordinates: gameDocument.winningCoordinates, lastMoveTime: gameDocument.lastMoveTime } });
+        await collection.updateOne({ _id: gameDocument._id }, { $set: { status: gameDocument.status, winner: gameDocument.winner, currentPlayer: gameDocument.currentPlayer, board: gameDocument.board, winningCoordinates: gameDocument.winningCoordinates, lastMoveTime: gameDocument.lastMoveTime, lastMoveCoordinates: gameDocument.lastMoveCoordinates } });
         res.status(200).send(gameDocument);
     } else {
         res.status(404).send('Game not found!');
     }
 });
-
-
 
 
 app.listen(3005, () => console.log('Server is running on port 3005'));
